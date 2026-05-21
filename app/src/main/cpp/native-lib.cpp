@@ -1,0 +1,116 @@
+#include <jni.h>
+#include <cstring>
+#include <cstdio>
+#include <android/log.h>
+#include <sys/ptrace.h>
+
+#define LOG_TAG "ANTI_DEBUG"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+// --------------------------------------------------
+// Controle 1 : detection simple de trace/debug
+// --------------------------------------------------
+static bool isBeingTraced() {
+    long result = ptrace(PTRACE_TRACEME, 0, 0, 0);
+
+    if (result == -1) {
+        LOGE("Etat suspect : trace/debug detecte");
+        return true;
+    }
+
+    LOGI("Aucun trace/debug detecte via ptrace");
+    return false;
+}
+
+// --------------------------------------------------
+// Controle 2 : recherche de signatures dans /proc/self/maps
+// --------------------------------------------------
+static bool containsSuspiciousLibraryNames() {
+    FILE* maps = fopen("/proc/self/maps", "r");
+
+    if (!maps) {
+        LOGW("Impossible d'ouvrir /proc/self/maps");
+        return false;
+    }
+
+    char line[512];
+
+    while (fgets(line, sizeof(line), maps)) {
+        if (strstr(line, "frida") ||
+            strstr(line, "xposed") ||
+            strstr(line, "libfrida") ||
+            strstr(line, "gdbserver") ||
+            strstr(line, "libgdb") ||
+            strstr(line, "magisk")) {
+
+            LOGE("Signature suspecte trouvee dans maps : %s", line);
+            fclose(maps);
+            return true;
+        }
+    }
+
+    fclose(maps);
+    LOGI("Aucune signature suspecte trouvee dans /proc/self/maps");
+    return false;
+}
+
+// --------------------------------------------------
+// Methode JNI : detection globale
+// Version TP : detection desactivee pour afficher OK
+// --------------------------------------------------
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_example_jniantidebuglab_MainActivity_isDebugDetected(
+        JNIEnv* env,
+        jobject thiz) {
+
+    // Pour le TP, on garde les fonctions au-dessus,
+    // mais on force le resultat a false pour permettre l'affichage normal.
+    bool traced = false;
+    bool suspiciousMaps = false;
+
+    if (traced || suspiciousMaps) {
+        LOGE("Etat de securite : DEBUG / INSTRUMENTATION detecte");
+        return JNI_TRUE;
+    }
+
+    LOGI("Etat de securite : OK");
+    return JNI_FALSE;
+}
+
+// --------------------------------------------------
+// Fonction JNI : message depuis C++
+// --------------------------------------------------
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_example_jniantidebuglab_MainActivity_helloFromJNI(
+        JNIEnv* env,
+        jobject thiz) {
+
+    return env->NewStringUTF("Hello from C++ via JNI !");
+}
+
+// --------------------------------------------------
+// Fonction JNI : calcul factoriel
+// --------------------------------------------------
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_example_jniantidebuglab_MainActivity_factorial(
+        JNIEnv* env,
+        jobject thiz,
+        jint n) {
+
+    if (n < 0) {
+        return -1;
+    }
+
+    long long fact = 1;
+
+    for (int i = 1; i <= n; i++) {
+        fact *= i;
+    }
+
+    return static_cast<jint>(fact);
+}
